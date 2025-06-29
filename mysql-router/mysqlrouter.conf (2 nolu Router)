@@ -1,0 +1,61 @@
+#
+# MySQL Router configuration file
+# Bu dosya Router2'deki MySQL Router'ın nasıl çalışacağını belirler
+# Router1 ile TAMAMEN AYNI - çünkü her iki router da aynı cluster'a bağlanıyor
+#
+
+# =============================================================================
+# GENEL AYARLAR - Router1 ile İDENTİK
+# =============================================================================
+[DEFAULT]
+logging_folder = /var/log/mysqlrouter          # Log dosyalarının tutulacağı dizin
+runtime_folder = /var/run/mysqlrouter          # Runtime dosyalarının (PID, socket) tutulacağı dizin  
+data_folder = /var/lib/mysqlrouter             # Data dosyalarının tutulacağı dizin
+user = mysqlrouter                             # Router'ın hangi system user ile çalışacağı
+pid_file = /var/run/mysqlrouter/mysqlrouter.pid # Process ID dosyasının yeri
+
+# AÇIKLAMA: Bu ayarlar Router1 ile tamamen aynı
+# Her iki router da aynı MySQL cluster'a hizmet veriyor
+
+# =============================================================================
+# READ-WRITE ROUTING - AYNI PRIMARY NODE'A YÖNLENDİRİR
+# =============================================================================
+[routing:read_write]
+bind_address = 0.0.0.0                        # Tüm network interface'lerden bağlantı kabul et
+bind_port = 6446                              # Router1 ile AYNI port (HAProxy buraya bağlanır)
+destinations = 192.168.1.209:3306             # Router1 ile AYNI - PRIMARY node'a yönlendir
+mode = read-write                              # Yazma ve okuma izni ver
+
+# AÇIKLAMA: 
+# • Router2'de port 6446'ya gelen bağlantılar da PRIMARY node'a (209) gider
+# • Her iki router da aynı PRIMARY node'u kullanır (consistency için)
+# • Failover durumunda VIP Router2'ye geçerse, yazma işlemleri burada devam eder
+# • Flow: VIP → Router2 HAProxy → Router2 MySQL Router:6446 → PRIMARY (209)
+
+# =============================================================================
+# READ-ONLY ROUTING - AYNI SECONDARY NODE'LARA YÖNLENDİRİR
+# =============================================================================
+[routing:read_only]
+bind_address = 0.0.0.0                        # Tüm network interface'lerden bağlantı kabul et
+bind_port = 6447                              # Router1 ile AYNI port (HAProxy buraya bağlanır)
+destinations = 192.168.1.70:3306,192.168.1.180:3306  # Router1 ile AYNI - SECONDARY node'lara yönlendir
+mode = read-only                              # Sadece okuma izni ver
+
+# AÇIKLAMA:
+# • Router2'de port 6447'ye gelen bağlantılar da SECONDARY node'lar arasında ROUND-ROBIN ile dağıtılır
+# • Her iki router da aynı SECONDARY node'ları kullanır
+# • Failover durumunda VIP Router2'ye geçerse, okuma işlemleri burada devam eder
+# • Load balancing Router2 seviyesinde de devam eder
+# • Flow: VIP → Router2 HAProxy → Router2 MySQL Router:6447 → SECONDARY (70,180)
+
+# =============================================================================
+# LOGGING VE KEEPALIVE - Router1 ile AYNI
+# =============================================================================
+[logger]
+level = INFO                                   # Log seviyesi
+
+[keepalive]
+interval = 60                                  # Her 60 saniyede keepalive sinyali
+
+# AÇIKLAMA: Bu ayarlar Router1 ile identik
+# Her iki router da aynı log seviyesi ve keepalive interval'ını kullanır
