@@ -30,6 +30,8 @@ MySQL Group Replication + HAProxy + Keepalived ile yüksek erişilebilirlik lab 
 │.209 │ │ .70 │ │.180 │
 │ P   │ │ S   │ │ S   │
 └─────┘ └─────┘ └─────┘
+P: Primary
+S: Secondary
 ```
 
 ## 📁 Dosya Yapısı
@@ -39,7 +41,6 @@ mysql-ha-configs/
 ├── mysql-group-replication/
 │   ├── primary-my.cnf           # Primary MySQL konfigürasyonu
 │   ├── secondary-my.cnf         # Secondary MySQL konfigürasyonu
-│   └── bootstrap-commands.sql   # Group Replication başlatma komutları
 │
 ├── mysql-router/
 │   ├── router1-mysqlrouter.conf # Router1 konfigürasyonu
@@ -62,13 +63,13 @@ mysql-ha-configs/
 
 ## 🔧 IP Adresleri
 
-| Component | IP Address | Role |
-|-----------|------------|------|
-| Virtual IP | 192.168.1.250 | Application entry point |
-| Router1 | 192.168.1.254 | MASTER router |
-| Router2 | 192.168.1.13 | BACKUP router |
-| MySQL Primary | 192.168.1.209 | Read/Write |
-| MySQL Secondary 1 | 192.168.1.70 | Read-Only |
+| Component         | IP Address    | Role |
+|-------------------|---------------|------|
+| Virtual IP        | 192.168.1.250 | Application entry point |
+| Router1           | 192.168.1.254 | MASTER router |
+| Router2           | 192.168.1.13  | BACKUP router |
+| MySQL Primary     | 192.168.1.209 | Read/Write |
+| MySQL Secondary 1 | 192.168.1.70  | Read-Only |
 | MySQL Secondary 2 | 192.168.1.180 | Read-Only |
 
 ## 📝 Notlar
@@ -76,7 +77,3 @@ mysql-ha-configs/
 - Lab ortamı için tasarlanmıştır
 - Production kullanımı için ek güvenlik gerekir
 - Config dosyalarındaki IP adreslerini kendi ortamınıza göre güncelleyin
-
----
-
-*Bu config dosyaları, [LinkedIn makalesi](makale-linki) ile ilgili lab çalışmasından alınmıştır.*
