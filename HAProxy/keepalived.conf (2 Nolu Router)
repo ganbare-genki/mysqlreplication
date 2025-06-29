@@ -1,0 +1,104 @@
+! Configuration File for keepalived
+
+# =============================================================================
+# GLOBAL TANIMLAMALAR - Router1'den FARKLI Router ID
+# =============================================================================
+global_defs {
+   router_id MYSQL_HA_ROUTER2                 # Router1'den FARKLI - Her router benzersiz ID
+   vrrp_skip_check_adv_addr                   # Router1 ile AYNI - Performans optimizasyonu
+   enable_script_security                     # Router1 ile AYNI - Script güvenliği
+   script_user root                           # Router1 ile AYNI - Script user'ı
+}
+
+# AÇIKLAMA:
+# • router_id FARKLI olmalı: MYSQL_HA_ROUTER1 vs MYSQL_HA_ROUTER2
+# • Diğer ayarlar Router1 ile aynı
+# • Her router benzersiz kimlik sahibi olmalı
+
+# =============================================================================
+# HAPROXY SAĞLIK KONTROLÜ - Router1 ile İDENTİK
+# =============================================================================
+vrrp_script chk_haproxy {
+    script "/bin/systemctl is-active haproxy"  # Router1 ile AYNI - HAProxy durumu kontrol
+    interval 2                                 # Router1 ile AYNI - Her 2 saniyede kontrol
+    weight -20                                 # Router1 ile AYNI - Fail durumunda priority düşür
+    fall 3                                     # Router1 ile AYNI - 3 kez fail = DOWN
+    rise 2                                     # Router1 ile AYNI - 2 kez success = UP
+    user root                                  # Router1 ile AYNI - Root user ile çalıştır
+}
+
+# AÇIKLAMA:
+# • Health check mantığı Router1 ile tamamen aynı
+# • Her iki router da kendi HAProxy'sini monitor eder
+# • Fail durumunda her ikisi de priority'sini düşürür
+# • Bu sayede healthcheck tutarlı çalışır
+
+# =============================================================================
+# VRRP INSTANCE - BACKUP ROLÜNDE, DÜŞÜK PRİORİTY
+# =============================================================================
+vrrp_instance VI_1 {
+    state BACKUP                               # Router1'den FARKLI - BACKUP rolünde başlar
+    interface enp0s3                           # Router1 ile AYNI - Network interface
+    virtual_router_id 51                       # Router1 ile AYNI - Aynı VRRP grubunda
+    priority 120                               # Router1'den DÜŞÜK - 130 > 120 (Router1 kazanır)
+    advert_int 1                               # Router1 ile AYNI - Advertisement interval
+    
+    # VRRP GÜVENLİK - Router1 ile İDENTİK
+    authentication {
+        auth_type PASS                         # Router1 ile AYNI - Şifre tabanlı auth
+        auth_pass mysql123                     # Router1 ile AYNI - Aynı şifre GEREKLİ
+    }
+    
+    # VIRTUAL IP - Router1 ile AYNI
+    virtual_ipaddress {
+        192.168.1.250                          # Router1 ile AYNI - Aynı VIP adresi
+    }
+    
+    # HEALTH CHECK - Router1 ile AYNI
+    track_script {
+        chk_haproxy                            # Router1 ile AYNI - HAProxy health check
+    }
+}
+
+# =============================================================================
+# BACKUP ROUTER MANTIGI
+# =============================================================================
+# Normal Durum:
+# • Router1: state=MASTER, priority=130, VIP=AKTIF
+# • Router2: state=BACKUP, priority=120, VIP=BEKLİYOR
+# • VIP 192.168.1.250 Router1'de aktif
+#
+# Router1 HAProxy Fail Durumu:
+# • Router1: priority=130-20=110 (health check effect)
+# • Router2: priority=120 (HAProxy'si çalışıyor)
+# • 120 > 110 olduğu için VIP Router2'ye geçer
+#
+# Router1 HAProxy Recovery:
+# • Router1: priority=130 (health check normal)  
+# • Router2: priority=120
+# • 130 > 120 olduğu için VIP Router1'e geri döner
+#
+# Router1 Komple Çökme:
+# • Router1: Advertisement mesajları kesilir
+# • Router2: Timeout sonrası MASTER olur
+# • VIP Router2'ye geçer
+#
+# Router1 Geri Dönme:
+# • Router1: state=MASTER, priority=130 ile geri döner
+# • Router2: priority=120 olduğu için VIP'i bırakır
+# • VIP Router1'e geri döner (preemption)
+
+# =============================================================================
+# FARKLILIKLAR ÖZET
+# =============================================================================
+# Router1'den Farklı Olan Ayarlar:
+# ✅ router_id: MYSQL_HA_ROUTER2 (Router1: MYSQL_HA_ROUTER1)
+# ✅ state: BACKUP (Router1: MASTER)  
+# ✅ priority: 120 (Router1: 130)
+#
+# Router1 ile Aynı Olan Ayarlar:
+# ✅ virtual_router_id: 51 (AYNI grup)
+# ✅ auth_pass: mysql123 (AYNI şifre)
+# ✅ virtual_ipaddress: 192.168.1.250 (AYNI VIP)
+# ✅ health check: chk_haproxy (AYNI mantık)
+# ✅ interface: enp0s3 (AYNI network interface)
