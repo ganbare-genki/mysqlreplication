@@ -1,0 +1,86 @@
+# =============================================================================
+# GLOBAL VE DEFAULT AYARLAR - Router1 ile İDENTİK
+# =============================================================================
+global
+    log stdout local0                          # Log'ları stdout'a gönder
+    chroot /var/lib/haproxy                    # Güvenlik için chroot jail
+    stats socket /run/haproxy/admin.sock mode 660 level admin  # Admin socket
+    stats timeout 30s                         # Socket timeout
+    user haproxy                               # HAProxy system user
+    group haproxy                              # HAProxy system group  
+    daemon                                     # Background daemon olarak çalış
+
+defaults
+    mode tcp                                   # TCP mode (MySQL için gerekli)
+    log global                                 # Global log ayarlarını kullan
+    option tcplog                              # TCP için özel log formatı
+    option dontlognull                         # Boş bağlantıları loglama
+    retries 3                                  # 3 kez yeniden deneme
+    timeout connect 5000ms                     # Backend bağlantı timeout'u
+    timeout client 50000ms                     # Client timeout'u
+    timeout server 50000ms                     # Server timeout'u
+
+# AÇIKLAMA: Global ve default ayarlar Router1 ile tamamen aynı
+# Bu sayede failover durumunda davranış tutarlı olur
+
+# =============================================================================
+# READ-WRITE FRONTEND - Router1 ile AYNI PORT (3306)
+# =============================================================================
+frontend mysql_read_write
+    bind *:3306                                # Router1 ile AYNI - Port 3306'da dinle
+    default_backend mysql_read_write_backend   # İlgili backend'e yönlendir
+
+# AÇIKLAMA: 
+# • VIP failover durumunda Router2'ye geçerse
+# • Uygulama yine 192.168.1.250:3306'ya bağlanır
+# • Ama artık Router2'deki HAProxy bu trafiği karşılar
+# • Aynı port numarası tutarlılığı sağlar
+
+# =============================================================================
+# READ-WRITE BACKEND - KENDI LOCAL ROUTER'INA YÖNLENDİRİR
+# =============================================================================
+backend mysql_read_write_backend
+    balance first                              # İlk aktif server'ı kullan
+    server router1 127.0.0.1:6446 check       # Router2'nin KENDI MySQL Router'ına yönlendir
+
+# AÇIKLAMA:
+# • 127.0.0.1:6446 = Router2'deki MySQL Router'ın read-write portu
+# • Router1'deki HAProxy Router1'in MySQL Router'ına yönlenir
+# • Router2'deki HAProxy Router2'nin MySQL Router'ına yönlenir
+# • Her HAProxy kendi local router'ını kullanır (performans için)
+# • Flow: VIP:3306 → Router2 HAProxy → Router2 MySQL Router:6446 → PRIMARY (209)
+
+# =============================================================================
+# READ-ONLY FRONTEND - Router1 ile AYNI PORT (3307)  
+# =============================================================================
+frontend mysql_read_only
+    bind *:3307                                # Router1 ile AYNI - Port 3307'de dinle
+    default_backend mysql_read_only_backend    # İlgili backend'e yönlendir
+
+# AÇIKLAMA: Failover durumunda okuma trafiği de Router2'de devam eder
+
+# =============================================================================
+# READ-ONLY BACKEND - KENDI LOCAL ROUTER'INA YÖNLENDİRİR
+# =============================================================================
+backend mysql_read_only_backend
+    balance roundrobin                         # Round-robin (gereksiz ama tutarlılık için)
+    server router1 127.0.0.1:6447 check       # Router2'nin KENDI MySQL Router'ına yönlendir
+
+# AÇIKLAMA:
+# • 127.0.0.1:6447 = Router2'deki MySQL Router'ın read-only portu
+# • Router2'deki MySQL Router da aynı SECONDARY node'lara round-robin yapar
+# • İki seviye round-robin olur ama sonuç aynı
+# • Flow: VIP:3307 → Router2 HAProxy → Router2 MySQL Router:6447 → SECONDARY (70,180)
+
+# =============================================================================
+# FAILOVER AKIŞI
+# =============================================================================
+# Normal Durum:
+# App → VIP:3306 → Router1 HAProxy → Router1 MySQL Router → PRIMARY (209)
+# App → VIP:3307 → Router1 HAProxy → Router1 MySQL Router → SECONDARY (70,180)
+#
+# Failover Durumu (Router1 HAProxy fail):
+# App → VIP:3306 → Router2 HAProxy → Router2 MySQL Router → PRIMARY (209)  
+# App → VIP:3307 → Router2 HAProxy → Router2 MySQL Router → SECONDARY (70,180)
+#
+# Sonuç: Aynı MySQL cluster'a farklı router'lardan erişim, kesintisiz hizmet
