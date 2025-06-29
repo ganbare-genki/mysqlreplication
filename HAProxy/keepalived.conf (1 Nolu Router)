@@ -1,0 +1,91 @@
+! Configuration File for keepalived
+
+# =============================================================================
+# GLOBAL TANIMLAMALAR - Tüm keepalived instance'ı için geçerli
+# =============================================================================
+global_defs {
+   router_id MYSQL_HA_ROUTER1                 # Bu router'ın benzersiz adı (her router'da farklı)
+   vrrp_skip_check_adv_addr                   # Advertisement adres kontrolünü atla (performans artışı)
+   enable_script_security                     # Script güvenliğini etkinleştir
+   script_user root                           # Script'leri root kullanıcısı ile çalıştır
+}
+
+# AÇIKLAMA: 
+# • router_id: Her keepalived instance'ın benzersiz bir adı olmalı
+# • vrrp_skip_check_adv_addr: Network performansını artırır
+# • enable_script_security: Health check script'lerinin güvenli çalışmasını sağlar
+# • script_user root: Health check script'ini root olarak çalıştır
+
+# =============================================================================
+# HAPROXY SAĞLIK KONTROLÜ SCRIPT'İ
+# =============================================================================
+vrrp_script chk_haproxy {
+    script "/bin/systemctl is-active haproxy"  # HAProxy servisinin durumunu kontrol et
+    interval 2                                 # Her 2 saniyede bir kontrol yap
+    weight -20                                 # HAProxy fail olursa priority'den 20 çıkar
+    fall 3                                     # 3 kez başarısız olursa FAIL kabul et
+    rise 2                                     # 2 kez başarılı olursa OK kabul et
+    user root                                  # Script'i root kullanıcısı ile çalıştır
+}
+
+# AÇIKLAMA:
+# • script: systemctl is-active haproxy komutu 0 döndürürse HAProxy çalışıyor
+# • interval 2: Her 2 saniyede test et
+# • weight -20: HAProxy fail olunca priority 130'dan 110'a düşer (Router2'den düşük)
+# • fall 3: 3 × 2 = 6 saniye içinde 3 kez fail olursa DOWN
+# • rise 2: 2 × 2 = 4 saniye içinde 2 kez success olursa UP
+# • Bu sayede HAProxy problemi olduğunda VIP Router2'ye geçer
+
+# =============================================================================
+# VRRP INSTANCE - Virtual IP Yönetimi
+# =============================================================================
+vrrp_instance VI_1 {
+    state MASTER                               # Bu router MASTER rolünde başlar
+    interface enp0s3                           # Network interface adı (ip a ile kontrol edilebilir)
+    virtual_router_id 51                       # VRRP grup ID'si (her iki router'da AYNI olmalı)
+    priority 130                               # Router önceliği (yüksek sayı = yüksek öncelik)
+    advert_int 1                               # Advertisement mesajlarını her 1 saniyede gönder
+    
+    # VRRP GÜVENLİK VE KİMLİK DOĞRULAMA
+    authentication {
+        auth_type PASS                         # Basit şifre tabanlı kimlik doğrulama
+        auth_pass mysql123                     # VRRP şifresi (her iki router'da AYNI olmalı)
+    }
+    
+    # VIRTUAL IP ADRESİ - Uygulamanın bağlanacağı IP
+    virtual_ipaddress {
+        192.168.1.250                          # Failover IP adresi (VIP)
+    }
+    
+    # SAĞLIK KONTROLÜ SCRIPT'İNİ ETKİNLEŞTİR
+    track_script {
+        chk_haproxy                            # Yukarıda tanımlanan HAProxy health check'ini takip et
+    }
+}
+
+# AÇIKLAMA:
+# • state MASTER: Bu router öncelikli olarak VIP'i almaya çalışır
+# • interface enp0s3: VIP bu network interface'e bind edilir
+# • virtual_router_id 51: Her iki router da aynı grup ID'sini kullanmalı
+# • priority 130: Router2'den (120) yüksek, bu yüzden bu router VIP'i alır
+# • advert_int 1: Her saniye "ben yaşıyorum" mesajı gönderir
+# • auth_pass mysql123: Güvenlik için her iki router aynı şifreyi kullanır
+# • virtual_ipaddress 192.168.1.250: Bu IP adresi aktif router'da olur
+# • track_script chk_haproxy: HAProxy fail olursa priority düşer, VIP Router2'ye geçer
+
+# =============================================================================
+# FAILOVER MANTIGI
+# =============================================================================
+# Normal Durum:
+# • Router1 Priority: 130 (MASTER) - VIP burada
+# • Router2 Priority: 120 (BACKUP) - VIP bekleme modunda
+#
+# HAProxy Fail Durumu:
+# • Router1 Priority: 130 - 20 = 110 (weight effect)
+# • Router2 Priority: 120 (HAProxy'si çalışıyor)
+# • VIP Router2'ye geçer (120 > 110)
+#
+# HAProxy Recovery Durumu:  
+# • Router1 Priority: 130 (weight geri döner)
+# • Router2 Priority: 120
+# • VIP Router1'e geri döner (130 > 120)
