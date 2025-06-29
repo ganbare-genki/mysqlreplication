@@ -1,0 +1,63 @@
+#
+# MySQL Router configuration file
+# Bu dosya MySQL Router'ın nasıl çalışacağını belirler
+# Router, MySQL cluster'a gelen bağlantıları doğru node'lara yönlendirir
+#
+
+# =============================================================================
+# GENEL AYARLAR - Tüm MySQL Router instance'ı için geçerli
+# =============================================================================
+[DEFAULT]
+logging_folder = /var/log/mysqlrouter          # Log dosyalarının tutulacağı dizin
+runtime_folder = /var/run/mysqlrouter          # Runtime dosyalarının (PID, socket) tutulacağı dizin  
+data_folder = /var/lib/mysqlrouter             # Data dosyalarının tutulacağı dizin
+user = mysqlrouter                             # Router'ın hangi system user ile çalışacağı
+pid_file = /var/run/mysqlrouter/mysqlrouter.pid # Process ID dosyasının yeri
+
+# =============================================================================
+# READ-WRITE ROUTING - Yazma İşlemleri İçin (INSERT, UPDATE, DELETE)
+# =============================================================================
+[routing:read_write]
+bind_address = 0.0.0.0                        # Tüm network interface'lerden bağlantı kabul et
+bind_port = 6446                              # Bu port'ta dinle (HAProxy buraya bağlanır)
+destinations = 192.168.1.209:3306             # SADECE PRIMARY node'a yönlendir
+mode = read-write                              # Bu route yazma iznini de veriyor
+
+# AÇIKLAMA: Port 6446'ya gelen TÜM bağlantılar PRIMARY node'a (209) gider
+# Bu port üzerinden INSERT, UPDATE, DELETE, SELECT işlemleri yapılabilir
+# HAProxy'nin 3306 portu bu porta yönlenir
+
+# =============================================================================
+# READ-ONLY ROUTING - Okuma İşlemleri İçin (SELECT)
+# =============================================================================
+[routing:read_only]
+bind_address = 0.0.0.0                        # Tüm network interface'lerden bağlantı kabul et
+bind_port = 6447                              # Bu port'ta dinle (HAProxy buraya bağlanır)
+destinations = 192.168.1.70:3306,192.168.1.180:3306  # SADECE SECONDARY node'lara yönlendir
+mode = read-only                              # Bu route sadece okuma iznini veriyor
+
+# AÇIKLAMA: Port 6447'ye gelen bağlantılar SECONDARY node'lar arasında ROUND-ROBIN ile dağıtılır
+# İlk query → 192.168.1.70'e gider
+# İkinci query → 192.168.1.180'e gider  
+# Üçüncü query → Tekrar 192.168.1.70'e gider (döngü)
+# Bu port üzerinden sadece SELECT işlemleri yapılabilir
+# HAProxy'nin 3307 portu bu porta yönlenir
+
+# =============================================================================
+# LOGGING AYARLARI
+# =============================================================================
+[logger]
+level = INFO                                   # Log seviyesi (DEBUG, INFO, WARNING, ERROR)
+
+# AÇIKLAMA: Router'ın yaptığı işlemleri loglar
+# /var/log/mysqlrouter/mysqlrouter.log dosyasında tutulur
+# Bağlantı problemlerini debug etmek için kullanılır
+
+# =============================================================================
+# KEEPALIVE AYARLARI
+# =============================================================================
+[keepalive]
+interval = 60                                  # Her 60 saniyede keepalive sinyali gönder
+
+# AÇIKLAMA: Router'ın çalışır durumda olduğunu MySQL cluster'a bildirir
+# Eğer bu sinyaller kesilirse, cluster bu router'ı dead kabul eder
