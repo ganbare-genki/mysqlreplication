@@ -1,0 +1,29 @@
+# For advice on how to change settings please see
+# http://dev.mysql.com/doc/refman/8.0/en/server-configuration-defaults.html
+
+[mysqld]
+server-id=1
+log_bin=mysql-bin
+gtid_mode=ON
+enforce-gtid-consistency=ON
+binlog_format=ROW
+transaction_write_set_extraction=XXHASH64
+
+loose-group_replication_group_name="aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+loose-group_replication_local_address="192.168.1.209:33061"
+loose-group_replication_group_seeds="192.168.1.209:33061,192.168.1.70:33061,192.168.1.180:33061"
+loose-group_replication_bootstrap_group=OFF
+loose-report_host=192.168.1.209
+loose-group_replication_ip_allowlist="192.168.1.0/24"
+loose-group_replication_recovery_get_public_key=ON
+loose-group_replication_start_on_boot=ON
+plugin-load=group_replication.so
+
+bind-address=0.0.0.0
+max_connections=1000
+
+# Klasik yollar
+datadir=/var/lib/mysql
+socket=/var/lib/mysql/mysql.sock
+log-error=/var/log/mysqld.log
+pid-file=/var/run/mysqld/mysqld.pid
