@@ -1,0 +1,71 @@
+# =============================================================================
+# GLOBAL AYARLAR - Tüm HAProxy instance'ı için geçerli
+# =============================================================================
+global
+    log stdout local0                          # Log'ları stdout'a gönder (systemd yakalayacak)
+    chroot /var/lib/haproxy                    # Güvenlik için chroot jail kullan
+    stats socket /run/haproxy/admin.sock mode 660 level admin  # Admin socket'i (monitoring için)
+    stats timeout 30s                         # Socket timeout süresi
+    user haproxy                               # HAProxy'nin çalışacağı system user
+    group haproxy                              # HAProxy'nin çalışacağı system group  
+    daemon                                     # Background'da daemon olarak çalış
+
+# =============================================================================
+# DEFAULT AYARLAR - Tüm frontend/backend'ler için geçerli
+# =============================================================================
+defaults
+    mode tcp                                   # TCP mode (MySQL için gerekli, HTTP değil)
+    log global                                 # Global log ayarlarını kullan
+    option tcplog                              # TCP bağlantıları için özel log formatı
+    option dontlognull                         # Boş/anlamsız bağlantıları loglama
+    retries 3                                  # Bağlantı hatası durumunda 3 kez yeniden dene
+    timeout connect 5000ms                     # Backend'e bağlanma timeout'u (5 saniye)
+    timeout client 50000ms                     # Client timeout'u (50 saniye)
+    timeout server 50000ms                     # Server timeout'u (50 saniye)
+
+# =============================================================================
+# READ-WRITE FRONTEND - Yazma İşlemleri (Port 3306)
+# =============================================================================
+frontend mysql_read_write
+    bind *:3306                                # Port 3306'da TÜM interface'lerde dinle
+    default_backend mysql_read_write_backend   # Gelen bağlantıları ilgili backend'e yönlendir
+
+# AÇIKLAMA: Uygulama 192.168.1.250:3306'ya bağlandığında buraya gelir
+# VIP (Virtual IP) bu HAProxy instance'ına yönlendirir
+# Bu port YAZMA işlemleri için kullanılır
+
+# =============================================================================
+# READ-WRITE BACKEND - PRIMARY MySQL Node'a Yönlendirme
+# =============================================================================
+backend mysql_read_write_backend
+    balance first                              # İlk aktif server'ı kullan (failover için)
+    server router1 127.0.0.1:6446 check       # Local MySQL Router'ın 6446 portuna yönlendir
+
+# AÇIKLAMA: 
+# • 127.0.0.1:6446 = Bu makinedeki MySQL Router'ın read-write portu
+# • check = Bu server'ın sağlığını sürekli kontrol et
+# • balance first = Tek server olduğu için first-available stratejisi
+# • Flow: VIP:3306 → HAProxy → Router:6446 → Primary MySQL (209)
+
+# =============================================================================
+# READ-ONLY FRONTEND - Okuma İşlemleri (Port 3307)
+# =============================================================================
+frontend mysql_read_only
+    bind *:3307                                # Port 3307'de TÜM interface'lerde dinle
+    default_backend mysql_read_only_backend    # Gelen bağlantıları ilgili backend'e yönlendir
+
+# AÇIKLAMA: Uygulama 192.168.1.250:3307'ye bağlandığında buraya gelir
+# Bu port SADECE OKUMA işlemleri için kullanılır
+
+# =============================================================================
+# READ-ONLY BACKEND - SECONDARY MySQL Node'lara Yönlendirme  
+# =============================================================================
+backend mysql_read_only_backend
+    balance roundrobin                         # Round-robin load balancing kullan
+    server router1 127.0.0.1:6447 check       # Local MySQL Router'ın 6447 portuna yönlendir
+
+# AÇIKLAMA:
+# • 127.0.0.1:6447 = Bu makinedeki MySQL Router'ın read-only portu
+# • check = Server sağlığını kontrol et
+# • balance roundrobin = Router seviyesinde zaten round-robin var
+# • Flow: VIP:3307 → HAProxy → Router:6447 → Secondary MySQL (70,180)
