@@ -1,0 +1,487 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MySQL HA Traffic Flow</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+        
+        .container {
+            max-width: 1600px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            padding: 30px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+        }
+        
+        .title {
+            text-align: center;
+            color: #2c3e50;
+            font-size: 32px;
+            font-weight: bold;
+            margin-bottom: 30px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .scenario-container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 30px;
+            margin-bottom: 40px;
+        }
+        
+        .scenario {
+            background: linear-gradient(145deg, #f8f9fa, #ffffff);
+            border-radius: 15px;
+            padding: 25px;
+            border: 3px solid #3498db;
+            box-shadow: 0 10px 20px rgba(0,0,0,0.1);
+        }
+        
+        .scenario.write { border-color: #e74c3c; }
+        .scenario.read { border-color: #27ae60; }
+        
+        .scenario-title {
+            font-size: 24px;
+            font-weight: bold;
+            margin-bottom: 20px;
+            text-align: center;
+            padding: 10px;
+            border-radius: 10px;
+            color: white;
+        }
+        
+        .write .scenario-title { background: #e74c3c; }
+        .read .scenario-title { background: #27ae60; }
+        
+        .flow-step {
+            background: white;
+            margin: 15px 0;
+            padding: 15px;
+            border-radius: 10px;
+            border-left: 5px solid #3498db;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+            position: relative;
+        }
+        
+        .write .flow-step { border-left-color: #e74c3c; }
+        .read .flow-step { border-left-color: #27ae60; }
+        
+        .step-number {
+            position: absolute;
+            left: -15px;
+            top: 15px;
+            background: #3498db;
+            color: white;
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            font-size: 14px;
+        }
+        
+        .write .step-number { background: #e74c3c; }
+        .read .step-number { background: #27ae60; }
+        
+        .ip-info {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin: 10px 0;
+        }
+        
+        .ip {
+            background: #34495e;
+            color: white;
+            padding: 5px 10px;
+            border-radius: 5px;
+            font-family: 'Courier New', monospace;
+            font-weight: bold;
+        }
+        
+        .port {
+            background: #9b59b6;
+            color: white;
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            margin: 0 2px;
+        }
+        
+        .arrow {
+            font-size: 20px;
+            color: #3498db;
+            font-weight: bold;
+        }
+        
+        .component-name {
+            font-weight: bold;
+            color: #2c3e50;
+            margin-bottom: 5px;
+        }
+        
+        .description {
+            color: #7f8c8d;
+            font-size: 14px;
+            margin-top: 5px;
+        }
+        
+        .normal-flow {
+            background: linear-gradient(145deg, #e8f5e8, #ffffff);
+            border: 2px solid #27ae60;
+        }
+        
+        .failover-flow {
+            background: linear-gradient(145deg, #fff3e0, #ffffff);
+            border: 2px solid #f39c12;
+        }
+        
+        .section-title {
+            font-size: 20px;
+            font-weight: bold;
+            color: #2c3e50;
+            margin: 30px 0 15px 0;
+            padding: 10px;
+            background: linear-gradient(145deg, #ecf0f1, #ffffff);
+            border-radius: 10px;
+            border-left: 5px solid #3498db;
+        }
+        
+        .router-info {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin: 20px 0;
+        }
+        
+        .router-box {
+            background: linear-gradient(145deg, #f0f0f0, #ffffff);
+            padding: 20px;
+            border-radius: 10px;
+            border: 2px solid #95a5a6;
+        }
+        
+        .router-box.active {
+            border-color: #27ae60;
+            background: linear-gradient(145deg, #e8f5e8, #ffffff);
+        }
+        
+        .router-box.standby {
+            border-color: #f39c12;
+            background: linear-gradient(145deg, #fff9e6, #ffffff);
+        }
+        
+        .router-title {
+            font-weight: bold;
+            color: #2c3e50;
+            margin-bottom: 10px;
+            font-size: 16px;
+        }
+        
+        .highlight {
+            background: #fff3cd;
+            padding: 2px 4px;
+            border-radius: 3px;
+            font-weight: bold;
+        }
+        
+        @media (max-width: 1200px) {
+            .scenario-container {
+                grid-template-columns: 1fr;
+            }
+            .router-info {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1 class="title">🔄 MySQL HA Traffic Flow & IP Routes</h1>
+        
+        <div class="scenario-container">
+            <!-- Write Scenario -->
+            <div class="scenario write">
+                <div class="scenario-title">📝 WRITE Operations (INSERT/UPDATE/DELETE)</div>
+                
+                <div class="flow-step">
+                    <div class="step-number">1</div>
+                    <div class="component-name">Application Connection</div>
+                    <div class="ip-info">
+                        <span class="ip">192.168.1.250</span>
+                        <span class="arrow">→</span>
+                        <span class="port">3306</span>
+                    </div>
+                    <div class="description">Application connects to Virtual IP on port 3306 for write operations</div>
+                </div>
+                
+                <div class="flow-step">
+                    <div class="step-number">2</div>
+                    <div class="component-name">Keepalived VIP Routing</div>
+                    <div class="ip-info">
+                        <span class="ip">192.168.1.250</span>
+                        <span class="arrow">→</span>
+                        <span class="ip">192.168.1.254</span>
+                    </div>
+                    <div class="description">VIP routes traffic to active router (Router1 - MASTER)</div>
+                </div>
+                
+                <div class="flow-step">
+                    <div class="step-number">3</div>
+                    <div class="component-name">HAProxy Frontend</div>
+                    <div class="ip-info">
+                        <span class="ip">192.168.1.254</span>
+                        <span class="port">3306</span>
+                        <span class="arrow">→</span>
+                        <span class="highlight">mysql_read_write</span>
+                    </div>
+                    <div class="description">HAProxy receives connection on port 3306 frontend</div>
+                </div>
+                
+                <div class="flow-step">
+                    <div class="step-number">4</div>
+                    <div class="component-name">HAProxy Backend</div>
+                    <div class="ip-info">
+                        <span class="ip">127.0.0.1</span>
+                        <span class="port">6446</span>
+                        <span class="arrow">→</span>
+                        <span class="highlight">MySQL Router</span>
+                    </div>
+                    <div class="description">HAProxy forwards to local MySQL Router on port 6446</div>
+                </div>
+                
+                <div class="flow-step">
+                    <div class="step-number">5</div>
+                    <div class="component-name">MySQL Router (Read-Write)</div>
+                    <div class="ip-info">
+                        <span class="ip">192.168.1.209</span>
+                        <span class="port">3306</span>
+                        <span class="arrow">→</span>
+                        <span class="highlight">PRIMARY Node</span>
+                    </div>
+                    <div class="description">Router forwards to PRIMARY MySQL node for write operations</div>
+                </div>
+                
+                <div class="flow-step">
+                    <div class="step-number">6</div>
+                    <div class="component-name">Group Replication Sync</div>
+                    <div class="ip-info">
+                        <span class="ip">192.168.1.70</span>
+                        <span class="ip">192.168.1.180</span>
+                        <span class="arrow">←</span>
+                        <span class="highlight">Sync</span>
+                    </div>
+                    <div class="description">PRIMARY synchronizes data to SECONDARY nodes</div>
+                </div>
+            </div>
+            
+            <!-- Read Scenario -->
+            <div class="scenario read">
+                <div class="scenario-title">📖 READ Operations (SELECT)</div>
+                
+                <div class="flow-step">
+                    <div class="step-number">1</div>
+                    <div class="component-name">Application Connection</div>
+                    <div class="ip-info">
+                        <span class="ip">192.168.1.250</span>
+                        <span class="arrow">→</span>
+                        <span class="port">3307</span>
+                    </div>
+                    <div class="description">Application connects to Virtual IP on port 3307 for read operations</div>
+                </div>
+                
+                <div class="flow-step">
+                    <div class="step-number">2</div>
+                    <div class="component-name">Keepalived VIP Routing</div>
+                    <div class="ip-info">
+                        <span class="ip">192.168.1.250</span>
+                        <span class="arrow">→</span>
+                        <span class="ip">192.168.1.254</span>
+                    </div>
+                    <div class="description">VIP routes traffic to active router (Router1 - MASTER)</div>
+                </div>
+                
+                <div class="flow-step">
+                    <div class="step-number">3</div>
+                    <div class="component-name">HAProxy Frontend</div>
+                    <div class="ip-info">
+                        <span class="ip">192.168.1.254</span>
+                        <span class="port">3307</span>
+                        <span class="arrow">→</span>
+                        <span class="highlight">mysql_read_only</span>
+                    </div>
+                    <div class="description">HAProxy receives connection on port 3307 frontend</div>
+                </div>
+                
+                <div class="flow-step">
+                    <div class="step-number">4</div>
+                    <div class="component-name">HAProxy Backend</div>
+                    <div class="ip-info">
+                        <span class="ip">127.0.0.1</span>
+                        <span class="port">6447</span>
+                        <span class="arrow">→</span>
+                        <span class="highlight">MySQL Router</span>
+                    </div>
+                    <div class="description">HAProxy forwards to local MySQL Router on port 6447</div>
+                </div>
+                
+                <div class="flow-step">
+                    <div class="step-number">5</div>
+                    <div class="component-name">MySQL Router (Read-Only)</div>
+                    <div class="ip-info">
+                        <span class="ip">192.168.1.70</span>
+                        <span class="ip">192.168.1.180</span>
+                        <span class="port">3306</span>
+                    </div>
+                    <div class="description">Router distributes queries to SECONDARY nodes using Round-Robin</div>
+                </div>
+                
+                <div class="flow-step">
+                    <div class="step-number">6</div>
+                    <div class="component-name">Load Balancing Pattern</div>
+                    <div class="ip-info">
+                        <span class="highlight">Query 1</span>
+                        <span class="arrow">→</span>
+                        <span class="ip">192.168.1.70</span>
+                    </div>
+                    <div class="ip-info">
+                        <span class="highlight">Query 2</span>
+                        <span class="arrow">→</span>
+                        <span class="ip">192.168.1.180</span>
+                    </div>
+                    <div class="ip-info">
+                        <span class="highlight">Query 3</span>
+                        <span class="arrow">→</span>
+                        <span class="ip">192.168.1.70</span>
+                    </div>
+                    <div class="description">Continuous round-robin distribution across SECONDARY nodes</div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="section-title">🔄 Router Status & Failover Scenarios</div>
+        
+        <div class="router-info">
+            <div class="router-box normal-flow active">
+                <div class="router-title">🟢 Router1 (MASTER) - Normal Operation</div>
+                <p><strong>IP:</strong> 192.168.1.254</p>
+                <p><strong>VIP Status:</strong> ACTIVE (192.168.1.250)</p>
+                <p><strong>HAProxy:</strong> Running</p>
+                <p><strong>Keepalived Priority:</strong> 130</p>
+                <p><strong>Traffic Route:</strong></p>
+                <ul>
+                    <li>Write: VIP:3306 → 254:3306 → 127.0.0.1:6446 → 209:3306</li>
+                    <li>Read: VIP:3307 → 254:3307 → 127.0.0.1:6447 → 70/180:3306</li>
+                </ul>
+            </div>
+            
+            <div class="router-box standby">
+                <div class="router-title">🟡 Router2 (BACKUP) - Standby Mode</div>
+                <p><strong>IP:</strong> 192.168.1.13</p>
+                <p><strong>VIP Status:</strong> STANDBY</p>
+                <p><strong>HAProxy:</strong> Running (Ready)</p>
+                <p><strong>Keepalived Priority:</strong> 120</p>
+                <p><strong>Ready to Route:</strong></p>
+                <ul>
+                    <li>Write: VIP:3306 → 13:3306 → 127.0.0.1:6446 → 209:3306</li>
+                    <li>Read: VIP:3307 → 13:3307 → 127.0.0.1:6447 → 70/180:3306</li>
+                </ul>
+            </div>
+        </div>
+        
+        <div class="section-title">⚠️ Failover Traffic Flow</div>
+        
+        <div class="router-info">
+            <div class="router-box failover-flow">
+                <div class="router-title">🔴 Router1 HAProxy Failed</div>
+                <p><strong>Priority Change:</strong> 130 - 20 = 110</p>
+                <p><strong>VIP Status:</strong> LOST (Priority < Router2)</p>
+                <p><strong>Traffic Impact:</strong> ~6-10 second interruption</p>
+                <p><strong>Detection:</strong> systemctl is-active haproxy</p>
+            </div>
+            
+            <div class="router-box normal-flow active">
+                <div class="router-title">🟢 Router2 Takes Over</div>
+                <p><strong>Priority:</strong> 120 (Higher than Router1's 110)</p>
+                <p><strong>VIP Status:</strong> ACTIVE (192.168.1.250 → 192.168.1.13)</p>
+                <p><strong>New Traffic Route:</strong></p>
+                <ul>
+                    <li>Write: VIP:3306 → 13:3306 → 127.0.0.1:6446 → 209:3306</li>
+                    <li>Read: VIP:3307 → 13:3307 → 127.0.0.1:6447 → 70/180:3306</li>
+                </ul>
+                <p><strong>Result:</strong> Seamless continuation of service</p>
+            </div>
+        </div>
+        
+        <div class="section-title">📊 IP & Port Summary Table</div>
+        
+        <table style="width: 100%; border-collapse: collapse; margin: 20px 0;">
+            <thead style="background: #34495e; color: white;">
+                <tr>
+                    <th style="padding: 15px; border: 1px solid #ddd;">Component</th>
+                    <th style="padding: 15px; border: 1px solid #ddd;">IP Address</th>
+                    <th style="padding: 15px; border: 1px solid #ddd;">Ports</th>
+                    <th style="padding: 15px; border: 1px solid #ddd;">Purpose</th>
+                    <th style="padding: 15px; border: 1px solid #ddd;">Traffic Type</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr style="background: #fff3cd;">
+                    <td style="padding: 10px; border: 1px solid #ddd;"><strong>Virtual IP (VIP)</strong></td>
+                    <td style="padding: 10px; border: 1px solid #ddd;">192.168.1.250</td>
+                    <td style="padding: 10px; border: 1px solid #ddd;">3306, 3307</td>
+                    <td style="padding: 10px; border: 1px solid #ddd;">Application Entry Point</td>
+                    <td style="padding: 10px; border: 1px solid #ddd;">All Traffic</td>
+                </tr>
+                <tr style="background: #d4edda;">
+                    <td style="padding: 10px; border: 1px solid #ddd;"><strong>Router1 (MASTER)</strong></td>
+                    <td style="padding: 10px; border: 1px solid #ddd;">192.168.1.254</td>
+                    <td style="padding: 10px; border: 1px solid #ddd;">3306, 3307, 6446, 6447</td>
+                    <td style="padding: 10px; border: 1px solid #ddd;">Active HA Router</td>
+                    <td style="padding: 10px; border: 1px solid #ddd;">Primary Route</td>
+                </tr>
+                <tr style="background: #fff3e0;">
+                    <td style="padding: 10px; border: 1px solid #ddd;"><strong>Router2 (BACKUP)</strong></td>
+                    <td style="padding: 10px; border: 1px solid #ddd;">192.168.1.13</td>
+                    <td style="padding: 10px; border: 1px solid #ddd;">3306, 3307, 6446, 6447</td>
+                    <td style="padding: 10px; border: 1px solid #ddd;">Standby HA Router</td>
+                    <td style="padding: 10px; border: 1px solid #ddd;">Failover Route</td>
+                </tr>
+                <tr style="background: #f8d7da;">
+                    <td style="padding: 10px; border: 1px solid #ddd;"><strong>MySQL Primary</strong></td>
+                    <td style="padding: 10px; border: 1px solid #ddd;">192.168.1.209</td>
+                    <td style="padding: 10px; border: 1px solid #ddd;">3306</td>
+                    <td style="padding: 10px; border: 1px solid #ddd;">Write Operations</td>
+                    <td style="padding: 10px; border: 1px solid #ddd;">INSERT/UPDATE/DELETE</td>
+                </tr>
+                <tr style="background: #d1ecf1;">
+                    <td style="padding: 10px; border: 1px solid #ddd;"><strong>MySQL Secondary 1</strong></td>
+                    <td style="padding: 10px; border: 1px solid #ddd;">192.168.1.70</td>
+                    <td style="padding: 10px; border: 1px solid #ddd;">3306</td>
+                    <td style="padding: 10px; border: 1px solid #ddd;">Read Operations</td>
+                    <td style="padding: 10px; border: 1px solid #ddd;">SELECT (Round-Robin)</td>
+                </tr>
+                <tr style="background: #d1ecf1;">
+                    <td style="padding: 10px; border: 1px solid #ddd;"><strong>MySQL Secondary 2</strong></td>
+                    <td style="padding: 10px; border: 1px solid #ddd;">192.168.1.180</td>
+                    <td style="padding: 10px; border: 1px solid #ddd;">3306</td>
+                    <td style="padding: 10px; border: 1px solid #ddd;">Read Operations</td>
+                    <td style="padding: 10px; border: 1px solid #ddd;">SELECT (Round-Robin)</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</body>
+</html>
